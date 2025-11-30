@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
+	"strings"
 	"syscall"
 
 	"github.com/containernetworking/cni/pkg/skel"
@@ -142,7 +144,23 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 	defer netns.Close()
 
-	precalculatedContainerYGGAddr, err := EncodeContainerNameToYGGAddr(hostYggInfo.YGGSubnetAddr, args.ContainerID)
+	// args.Args is like CNI_ARGS=NERDCTL_CNI_DHCP_HOSTNAME=test-nginx-4;IgnoreUnknown=1 we parse it.
+	parsedArgs := map[string]string{}
+	if args.Args != "" {
+		argPairs := strings.Split(args.Args, ";")
+		for _, pair := range argPairs {
+			kv := strings.SplitN(pair, "=", 2)
+			if len(kv) == 2 {
+				parsedArgs[kv[0]] = kv[1]
+			}
+		}
+	}
+	containerHostName, ok := parsedArgs["NERDCTL_CNI_DHCP_HOSTNAME"]
+	if !ok || containerHostName == "" {
+		return fmt.Errorf("failed to get container ID from CNI_ARGS NERDCTL_CNI_DHCP_HOSTNAME, hostname must be set")
+	}
+
+	precalculatedContainerYGGAddr, err := encodeContainerNameToYGGAddr(hostYggInfo.YGGSubnetAddr, containerHostName)
 	if err != nil {
 		return fmt.Errorf("failed to encode container name to YGG address: %v", err)
 	}
@@ -186,14 +204,41 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	// replace TODO with your plugin name
+	// command-line subcommand parser
+	if len(os.Args) > 1 {
+		cmd := os.Args[1]
+		switch cmd {
+		case "getsuffix":
+			if len(os.Args) < 3 {
+				fmt.Fprintf(os.Stderr, "usage: %s getsuffix <string>\n", os.Args[0])
+				os.Exit(2)
+			}
+			inputStr := os.Args[2]
+			// return the last 8 characters (or the whole string if shorter)
+			ygginfo, err := getHostYGGNetInfo()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error getting host YGG info: %v\n", err)
+				os.Exit(1)
+			}
+			resultIP, err := encodeContainerNameToYGGAddr(ygginfo.YGGSubnetAddr, inputStr)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error encoding container name to YGG addr: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println(resultIP.IP.String())
+			os.Exit(0) // successfully
+			// handled the subcommand, exit before running as a CNI plugin
+			return
+		}
+	}
+
 	skel.PluginMainFuncs(skel.CNIFuncs{
 		Add:    cmdAdd,
 		Check:  cmdCheck,
 		Del:    cmdDel,
 		Status: cmdStatus,
 		/* FIXME GC */
-	}, version.All, bv.BuildString("TODO"))
+	}, version.All, bv.BuildString("yggoverlay"))
 }
 
 func cmdCheck(_ *skel.CmdArgs) error {

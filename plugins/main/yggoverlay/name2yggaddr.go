@@ -7,9 +7,9 @@ import (
 	"net"
 )
 
-// EncodeContainerNameToYGGAddr
+// encodeContainerNameToYGGAddr
 // 输入 IPv6 前缀 (net.IPNet) 和字符串，输出同前缀长度的 IPv6 地址 (net.IPNet)
-func EncodeContainerNameToYGGAddr(prefix *net.IPNet, src string) (*net.IPNet, error) {
+func encodeContainerNameToYGGAddr(prefix *net.IPNet, src string) (*net.IPNet, error) {
 	if prefix.IP.To16() == nil {
 		return nil, fmt.Errorf("prefix is not a valid IPv6 network")
 	}
